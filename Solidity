@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract DAFECore {
+    address public owner;
+    mapping(address => uint256) private balances;
+    mapping(address => bool) private administrators;
+    mapping(uint256 => Proposal) private proposals;
+    uint256 private proposalCount;
+
+    struct Proposal {
+        string description;
+        uint256 votesFor;
+        uint256 votesAgainst;
+        uint256 deadline;
+        bool executed;
+    }
+
+    event Deposit(address indexed user, uint256 amount);
+    event Withdrawal(address indexed user, uint256 amount);
+    event ProposalCreated(uint256 proposalId, string description, uint256 deadline);
+    event Voted(uint256 proposalId, address indexed voter, bool inSupport);
+    event ProposalExecuted(uint256 proposalId);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Only owner can call this function");
+        _;
+    }
+
+    modifier onlyAdmin() {
+        require(administrators[msg.sender], "Only administrators can call this function");
+        _;
+    }
+
+    modifier proposalExists(uint256 proposalId) {
+        require(proposalId < proposalCount, "Proposal does not exist");
+        _;
+    }
+
+    modifier activeProposal(uint256 proposalId) {
+        require(block.timestamp < proposals[proposalId].deadline, "Proposal voting period has ended");
+        require(!proposals[proposalId].executed, "Proposal already executed");
+        _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+        administrators[owner] = true;
+        proposalCount = 0;
+    }
+
+    // Fungsi untuk menyetorkan dana ke dalam kontrak
+    function deposit() external payable {
+        require(msg.value > 0, "Deposit value must be greater than 0");
+        balances[msg.sender] += msg.value;
+        emit Deposit(msg.sender, msg.value);
+    }
+
+    // Fungsi untuk menarik dana oleh pengguna
+    function withdraw(uint256 amount) external {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        balances[msg.sender] -= amount;
+        payable(msg.sender).transfer(amount);
+        emit Withdrawal(msg.sender, amount);
+    }
+
+    // Fungsi untuk membuat proposal tata kelola
+    function createProposal(string calldata description, uint256 votingPeriod) external onlyAdmin {
+        require(votingPeriod > 0, "Voting period must be greater than 0");
+        uint256 deadline = block.timestamp + votingPeriod;
+
+        proposals[proposalCount] = Proposal({
+            description: description,
+            votesFor: 0,
+            votesAgainst: 0,
+            deadline: deadline,
+            executed: false
+        });
+
+        emit ProposalCreated(proposalCount, description, deadline);
+        proposalCount++;
+    }
+
+    // Fungsi untuk memberikan suara pada proposal
+    function vote(uint256 proposalId, bool support) external proposalExists(proposalId) activeProposal(proposalId) {
+        Proposal storage proposal = proposals[proposalId];
+
+        if (support) {
+            proposal.votesFor++;
+        } else {
+            proposal.votesAgainst++;
+        }
+
+        emit Voted(proposalId, msg.sender, support);
+    }
+
+    // Fungsi untuk mengeksekusi proposal jika suara mayoritas tercapai
+    function executeProposal(uint256 proposalId) external onlyAdmin proposalExists(proposalId) {
+        Proposal storage proposal = proposals[proposalId];
+        require(block.timestamp >= proposal.deadline, "Voting period not yet ended");
+        require(!proposal.executed, "Proposal already executed");
+
+        if (proposal.votesFor > proposal.votesAgainst) {
+            // Implementasikan eksekusi proposal di sini
+            proposal.executed = true;
+            emit ProposalExecuted(proposalId);
+        }
+    }
+
+    // Fungsi untuk menetapkan administrator baru
+    function setAdministrator(address admin, bool status) external onlyOwner {
+        administrators[admin] = status;
+    }
+
+    // Fungsi untuk melihat saldo pengguna
+    function getBalance(address user) external view returns (uint256) {
+        return balances[user];
+    }
+}
